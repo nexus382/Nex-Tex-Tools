@@ -129,8 +129,17 @@ Only copies files that already exist in the destination directory. Useful for re
 original textures with upscaled versions.
 
 Required:
-- Source Directory: Folder with modified/upscaled images
-- Destination Directory: Target folder where matching files will be replaced"""
+ - Source Directory: Folder with modified/upscaled images
+ - Destination Directory: Target folder where matching files will be replaced""",
+
+    "11": """Locate and Replace:
+This tool replaces files in a destination directory tree (including subfolders) by
+matching filenames from the source directory. Useful when you have a flat folder of
+new images and want to overwrite the same-named files anywhere inside a nested pack.
+
+Required:
+- Source Directory: Folder containing the replacement images
+- Destination Directory: Folder (with subfolders) where matching files will be replaced"""
 }
 
 #==============================================================================
@@ -595,6 +604,79 @@ def compare_and_move(source_dir, dest_dir):
     return True
 
 #==============================================================================
+# IMAGE PROCESSING FUNCTIONS - TOOL 11: LOCATE AND REPLACE
+#==============================================================================
+def locate_and_replace(source_dir, dest_dir):
+    """
+    Locate matching files in a destination directory tree and replace them
+    with files from the source directory.
+    """
+    source_dir = validate_directory(source_dir)
+    if not source_dir:
+        return False
+    dest_dir = validate_directory(dest_dir)
+    if not dest_dir:
+        return False
+    
+    source_files = {f: os.path.join(source_dir, f) for f in os.listdir(source_dir)
+                   if f.lower().endswith('.png') and os.path.isfile(os.path.join(source_dir, f))}
+    
+    total_source = len(source_files)
+    if not source_files:
+        print(f"\nNo PNG files found in source directory {source_dir}")
+        return False
+    
+    dest_matches = {}
+    total_dest = 0
+    
+    for root, _, files in os.walk(dest_dir):
+        for filename in files:
+            if not filename.lower().endswith('.png'):
+                continue
+            total_dest += 1
+            if filename in source_files:
+                dest_matches.setdefault(filename, []).append(os.path.join(root, filename))
+    
+    total_matches = sum(len(paths) for paths in dest_matches.values())
+    
+    print(f"\nFound {total_source} PNG files in source directory...")
+    print(f"Scanned {total_dest} PNG files in destination directory tree...")
+    print(f"Found {total_matches} matching files to replace...")
+    
+    if not dest_matches:
+        print("No matching files to replace. Operation complete!")
+        return True
+    
+    copied_files = 0
+    error_files = 0
+    work_items = [(filename, dest_path) for filename, paths in dest_matches.items() for dest_path in paths]
+    
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        def copy_replace_file(work_item):
+            filename, dest_path = work_item
+            try:
+                source_path = source_files[filename]
+                shutil.copy2(source_path, dest_path)
+                print(f"Replaced: {filename}")
+                return "copied"
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+                return "error"
+        
+        results = list(executor.map(copy_replace_file, work_items))
+    
+    copied_files = sum(1 for r in results if r == "copied")
+    error_files = sum(1 for r in results if r == "error")
+    
+    print(f"\nOperation complete!")
+    print(f"Total files in source: {total_source}")
+    print(f"Matching files found: {total_matches}")
+    print(f"Files replaced: {copied_files}")
+    print(f"Files with errors: {error_files}")
+    
+    return True
+
+#==============================================================================
 # ADD NEW IMAGE PROCESSING FUNCTIONS HERE
 #==============================================================================
 # Copy the structure of one of the existing functions and modify it
@@ -662,7 +744,8 @@ class ImageToolsApp:
             ("Fill Transparent Areas", "7"),
             ("Find and Replace", "8"),
             ("BKP File Remover", "9"),
-            ("Compare and Move", "10")
+            ("Compare and Move", "10"),
+            ("Locate and Replace", "11")
             # Add new tools here following the same pattern
         ]
         
@@ -862,7 +945,7 @@ Support: {DONATION_URL}
         self.fill_color_frame.pack_forget()
         
         # Two directory inputs
-        if tool_num in ["1", "4", "8", "10"]:
+        if tool_num in ["1", "4", "8", "10", "11"]:
             self.source_dir_frame.pack(fill="x", pady=5)
             self.dest_dir_frame.pack(fill="x", pady=5)
         # Single directory input
@@ -943,7 +1026,7 @@ Support: {DONATION_URL}
             messagebox.showerror("Error", "Please select a source directory")
             return
             
-        if tool_num in ["1", "3", "4", "8", "10"] and not dest_dir:
+        if tool_num in ["1", "3", "4", "8", "10", "11"] and not dest_dir:
             messagebox.showerror("Error", "Please select a destination directory")
             return
         
@@ -958,7 +1041,7 @@ Support: {DONATION_URL}
             else:
                 return
         
-        if tool_num in ["1", "4", "8", "10"] and not os.path.exists(dest_dir):
+        if tool_num in ["1", "4", "8", "10", "11"] and not os.path.exists(dest_dir):
             # Create destination directory if needed
             if messagebox.askyesno("Directory Missing", "Destination directory doesn't exist. Create it?"):
                 try:
@@ -1004,6 +1087,9 @@ Support: {DONATION_URL}
             args = [source_dir]
         elif tool_num == "10":  # Compare and Move
             function = compare_and_move
+            args = [source_dir, dest_dir]
+        elif tool_num == "11":  # Locate and Replace
+            function = locate_and_replace
             args = [source_dir, dest_dir]
         # Add new tool cases here
         
